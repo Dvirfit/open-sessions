@@ -1,0 +1,7 @@
+{
+  "name": "open-sessions",
+  "version": "0.2.0",
+  "description": "A live side panel listing your open Claude Code sessions, a one-sentence summary of each, the ones waiting for your live pass, and a click to open each one",
+  "author": { "name": "Dvirfit" },
+  "types": "./types/index.d.ts"
+}

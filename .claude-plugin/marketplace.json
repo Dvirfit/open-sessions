@@ -1,0 +1,5 @@
+{
+  "name": "dvirfit",
+  "owner": { "name": "Dvirfit" },
+  "plugins": [{ "name": "open-sessions", "source": "./" }]
+}
