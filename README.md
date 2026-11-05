@@ -33,6 +33,10 @@ The panel opens by itself when a session starts. If you close it, `/sessions` br
   - stays at the top of the list;
   - is counted in the header and the status line;
   - is announced once with a pop-up.
+
+  Press the 🧪 counter in the header to hide these sessions, and press it again to bring
+  them back. Hiding turns off by itself once nothing is waiting, so the next session to
+  start waiting isn't hidden.
 - **Sort.** Running first, Recent, Project or Name. Your choice is remembered.
 - **↗ open.** Click a card to switch to that session.
 
@@ -50,7 +54,7 @@ The panel opens by itself when a session starts. If you close it, `/sessions` br
   - Haiku judges that the last message hands one to you.
 - **Opening a session** hands its `claude://` link to the operating system: `rundll32` on
   Windows, `open` on macOS, `xdg-open` on Linux.
-- **Tested on** Claude Code 2.1.309.
+- **Tested on** Claude Code 2.1.317.
 
 ## Tests
 

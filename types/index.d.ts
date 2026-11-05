@@ -37,6 +37,8 @@ declare module 'claude-code' {
       feed: Shaped<Feed>
       summaries: Shaped<Record<string, Summary>>
       sort: Shaped<SortMode>
+      // The live pass counter is pressed: the waiting sessions are left out.
+      hideLivePass: Shaped<boolean>
     }
   }
 }

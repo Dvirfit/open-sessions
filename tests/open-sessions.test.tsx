@@ -210,7 +210,7 @@ test('a session waiting for a live pass is flagged, pinned on top and announced'
   expect(await order()).toBe('lp,run,talk,quiet')
   expect(await ui.find({ type: 'Text', text: /^Old note\.$/ })).toBeUndefined()
   expect((await ui.findAll({ type: 'Text', text: /^ 🧪 LIVE PASS $/ })).length).toBe(1)
-  expect(await ui.find({ type: 'Text', text: /^🧪 1 live pass$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ 🧪 1 live pass $/ })).toBeDefined()
   expect(toasts).toEqual(['🧪 "Hand-off" is waiting for your live pass'])
   expect(statuses.at(-1)).toBe('● 1 running · 4 open sessions · 🧪 1 waiting for live pass')
 
@@ -269,3 +269,89 @@ for (const [platform, available, expected, toast] of [
     await ui.unmount()
   })
 }
+
+// The counter has two states: every session, or every session but the ones
+// waiting for a live pass. lp is the one waiting session. Once nothing waits
+// the counter goes and the hiding goes with it, or the next session to start
+// waiting would arrive already hidden.
+test('the live pass counter hides the waiting sessions and brings them back', async ($, on) => {
+  let sessions = LIVE_PASS_SESSIONS
+  let now = Date.parse('2026-11-03T12:20:00.000Z')
+  on('clock.now', () => ({ value: now }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('mcp.call', (_, e) => {
+    if (e.tool === 'list_sessions') {
+      return { value: { content: [{ type: 'text', text: JSON.stringify(sessions) }], isError: false } }
+    }
+    const said = e.args.session_id === 'lp' ? 'here is the live pass.' : 'All tests pass.'
+    return { value: { content: [{ type: 'text', text: `[assistant] ${said}` }], isError: false } }
+  })
+  on('model.complete', () => ({
+    value: { isAnswered: true, text: 'LIVE PASS: yes\nWaiting for your live pass.', usage: USAGE },
+  }))
+  const lpTo = (isRunning: boolean, lastActivityAt: string) => {
+    sessions = sessions.map(s => (s.sessionId === 'lp' ? { ...s, isRunning, lastActivityAt } : s))
+  }
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'refresh' })
+  const order = async () =>
+    (await ui.findAll({ type: 'Button' }))
+      .map(b => b.key ?? '')
+      .filter(key => key.startsWith('open-'))
+      .map(key => key.slice('open-'.length))
+      .join(',')
+
+  expect(await order()).toBe('lp,run,talk,quiet')
+  await ui.press({ key: 'live-pass-filter' })
+  expect(await order()).toBe('run,talk,quiet')
+  expect(await ui.find({ type: 'Text', text: /^4 open$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^● 1 running$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ 🧪 1 live pass hidden $/ })).toBeDefined()
+
+  await ui.press({ key: 'live-pass-filter' })
+  expect(await order()).toBe('lp,run,talk,quiet')
+  expect(await ui.find({ type: 'Text', text: /^ 🧪 1 live pass $/ })).toBeDefined()
+
+  // Hidden, then lp goes back to work: nothing is waiting any more.
+  await ui.press({ key: 'live-pass-filter' })
+  lpTo(true, '2026-11-03T12:20:05.000Z')
+  await ui.press({ key: 'refresh' })
+  expect(await order()).toBe('lp,run,talk,quiet')
+  expect(await ui.find({ type: 'Button', key: 'live-pass-filter' })).toBeUndefined()
+
+  // lp hands over a live pass again: it shows, it did not inherit the hiding.
+  now += 4 * 60_000
+  lpTo(false, '2026-11-03T12:23:00.000Z')
+  await ui.press({ key: 'refresh' })
+  expect(await ui.find({ type: 'Button', key: 'live-pass-filter' })).toBeDefined()
+  expect(await order()).toBe('lp,run,talk,quiet')
+  await ui.unmount()
+})
+
+test('hiding the only sessions there are says so instead of drawing nothing', async ($, on) => {
+  const onlyLp = LIVE_PASS_SESSIONS.filter(s => s.sessionId === 'lp')
+  on('clock.now', () => ({ value: Date.parse('2026-11-03T12:20:00.000Z') }))
+  on('ui.status', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('mcp.call', (_, e) => ({
+    value: {
+      content: [{ type: 'text', text: e.tool === 'list_sessions' ? JSON.stringify(onlyLp) : 'here is the live pass.' }],
+      isError: false,
+    },
+  }))
+  on('model.complete', () => ({
+    value: { isAnswered: true, text: 'LIVE PASS: yes\nWaiting for your live pass.', usage: USAGE },
+  }))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'refresh' })
+  const message = /^Every open session is waiting for your live pass\.$/
+  expect(await ui.find({ type: 'Text', text: message })).toBeUndefined()
+  await ui.press({ key: 'live-pass-filter' })
+  expect(await ui.find({ type: 'Text', text: message })).toBeDefined()
+  await ui.unmount()
+})

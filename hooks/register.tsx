@@ -27,6 +27,11 @@ const sort = atom(
   'active',
   { shape: 'sort-1' },
 )
+const hideLivePass = atom(
+  { plugin: 'open-sessions', key: 'hideLivePass' } as const,
+  false,
+  { shape: 'hide-live-pass-1' },
+)
 
 const SORTS: { mode: SortMode; label: string }[] = [
   { mode: 'active', label: 'Running first' },
@@ -245,9 +250,14 @@ async function tick($: EngineInterface): Promise<void> {
       return
     }
     const now = await $.clock.now()
+    const known = await read($, summaries)
+    // The counter goes with the last waiting session, and the hiding with it:
+    // the next session to start waiting would otherwise arrive hidden.
+    if (!rows.some(r => isWaitingLivePass(r, known[r.id]))) {
+      await update($, hideLivePass, () => false)
+    }
     await update($, feed, () => ({ rows, fetchedAt: now, error: null }))
 
-    const known = await read($, summaries)
     const stale = rows.filter(row => {
       const s = known[row.id]
       if (!s) return true
@@ -348,26 +358,42 @@ export const register: Register = on => {
     const { rows: fetched, fetchedAt, error } = await read($, feed)
     const mode = await read($, sort)
     const notes = await read($, summaries)
-    // Sessions waiting on your live pass stay on top whatever the sort.
+    const isHidden = await read($, hideLivePass)
+    // Sessions waiting on your live pass stay on top whatever the sort, and
+    // are left out while the counter is pressed.
     const ordered = sorted(fetched, mode)
-    const rows = [
-      ...ordered.filter(r => isWaitingLivePass(r, notes[r.id])),
-      ...ordered.filter(r => !isWaitingLivePass(r, notes[r.id])),
-    ]
+    const waitingRows = ordered.filter(r => isWaitingLivePass(r, notes[r.id]))
+    const otherRows = ordered.filter(r => !isWaitingLivePass(r, notes[r.id]))
+    const rows = isHidden ? otherRows : [...waitingRows, ...otherRows]
     const now = await $.clock.now()
-    const running = rows.filter(r => r.isRunning).length
-    const waiting = rows.filter(r => isWaitingLivePass(r, notes[r.id])).length
+    const running = fetched.filter(r => r.isRunning).length
+    const waiting = waitingRows.length
 
     return (
       <Box flexDirection="column" gap={1}>
         <Box flexDirection="row" justifyContent="space-between" alignItems="center">
-          <Text bold size="heading">
-            <Text color="success">● {running} running</Text>
-            <Text dimColor> · </Text>
-            <Text color="claude">{rows.length} open</Text>
-            {waiting > 0 && <Text dimColor> · </Text>}
-            {waiting > 0 && <Text color={LIVE_PASS_COLOR}>🧪 {waiting} live pass</Text>}
-          </Text>
+          <Box flexDirection="row" flexWrap="wrap" columnGap={1} alignItems="center">
+            <Text bold size="heading">
+              <Text color="success">● {running} running</Text>
+              <Text dimColor> · </Text>
+              <Text color="claude">{fetched.length} open</Text>
+            </Text>
+            {waiting > 0 && (
+              <Button
+                key="live-pass-filter"
+                plain
+                onPress={() => void update($, hideLivePass, isOn => !isOn)}
+              >
+                {isHidden ? (
+                  <Text backgroundColor={LIVE_PASS_COLOR} color="#ffffff" bold>
+                    {` 🧪 ${waiting} live pass hidden `}
+                  </Text>
+                ) : (
+                  <Text color={LIVE_PASS_COLOR} bold>{` 🧪 ${waiting} live pass `}</Text>
+                )}
+              </Button>
+            )}
+          </Box>
           <Button key="refresh" plain onPress={() => void tick($)}>
             <Text color="suggestion">↻ {fetchedAt ? ago(new Date(fetchedAt).toISOString(), now) : 'loading'}</Text>
           </Button>
@@ -388,8 +414,11 @@ export const register: Register = on => {
 
         {error && <Text color="error">Could not read sessions: {error}</Text>}
         {!error && fetchedAt === null && <Text color="suggestion">Loading your sessions…</Text>}
-        {fetchedAt !== null && rows.length === 0 && (
+        {fetchedAt !== null && fetched.length === 0 && (
           <Text dimColor>No other open sessions.</Text>
+        )}
+        {fetched.length > 0 && rows.length === 0 && (
+          <Text dimColor>Every open session is waiting for your live pass.</Text>
         )}
 
         {rows.map(row => {
